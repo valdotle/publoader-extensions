@@ -5,15 +5,13 @@ import math
 import re
 import string
 import traceback
-from copy import copy
+from copy import deepcopy
 from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import List, Optional, Union
 
 import aiohttp
 import requests
-
-from publoader.webhook import PubloaderWebhook
 from publoader.models.dataclasses import Chapter, Manga
 from publoader.utils.logs import setup_extension_logs
 from publoader.utils.misc import create_new_event_loop, find_key_from_list_value
@@ -22,6 +20,7 @@ from publoader.utils.utils import (
     open_manga_id_map,
     open_title_regex,
 )
+from publoader.webhook import PubloaderWebhook
 
 DEFAULT_TIMESTAMP = 1
 
@@ -660,9 +659,7 @@ class Extension:
         self, chapter: Chapter, chapter_number: List[Optional[str]]
     ) -> Optional[str]:
         """Strip away the title prefix."""
-        colon_regex = re.compile(
-            r"^(?:\S+\s*)?\d+(?:[\,\-\.]\d{0,2})?\s?:\s?", re.I
-        )
+        colon_regex = re.compile(r"^(?:\S+\s*)?\d+(?:[\,\-\.]\d{0,2})?\s?:\s?", re.I)
         no_title_regex = re.compile(r"^\S+\s*\d+(?:[\,\-\.]\d{0,2})?$", re.I)
         hashtag_regex = re.compile(r"^(?:\S+\s*)?#\d+(?:[\,\-\.]\d{0,2})?\s?", re.I)
         period_dash_regex = re.compile(
