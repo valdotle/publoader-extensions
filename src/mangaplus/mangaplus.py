@@ -1,7 +1,5 @@
 import asyncio
-import itertools
 import logging
-import math
 import re
 import string
 import traceback
@@ -11,6 +9,8 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import aiohttp
+import itertools
+import math
 import requests
 from publoader.models.dataclasses import Chapter, Manga
 from publoader.utils.logs import setup_extension_logs
@@ -24,7 +24,7 @@ from publoader.webhook import PubloaderWebhook
 
 DEFAULT_TIMESTAMP = 1
 
-__version__ = "0.2.01"
+__version__ = "0.2.02"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -179,8 +179,8 @@ class Extension:
         if "format" not in params:
             params["format"] = "json"
 
-        async with aiohttp.ClientSession() as session:
-            try:
+        try:
+            async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self._mplus_base_api_url + path, params=params
                 ) as response:
@@ -207,10 +207,10 @@ class Extension:
                         ).send()
 
                     return success_dict
-            except ZeroDivisionError as e:
-                logger.error(f"{e}: Couldn't get details from the mangaplus api.")
-                print("Request API Error", e)
-                return None
+        except (ZeroDivisionError, aiohttp.ClientError) as e:
+            logger.error(f"{e}: Couldn't get details from the mangaplus api.")
+            print("Request API Error", e)
+            return None
 
     async def _fetch_title_data(self, manga_id: int, **params) -> Optional[dict]:
         """Get manga and chapter details from the api."""
