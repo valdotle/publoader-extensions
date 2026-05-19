@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    if: github.repository == 'ArdaxHz/publoader-extensions'
+    if: github.repository == 'publoader/publoader-extensions'
     runs-on: ubuntu-latest
 
     steps:
