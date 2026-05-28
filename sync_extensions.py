@@ -18,21 +18,23 @@ import json
 import logging
 import os
 import shutil
+import sys
+import tempfile
+from pathlib import Path
 
 SOURCE_ROOT = Path(os.environ.get("PUBLOADER_SOURCE", "/extensions"))
 SOURCE_SRC = SOURCE_ROOT / "src"
 TARGET_DIR = Path(os.environ.get("PUBLOADER_TARGET", "/shared/publoader/extensions"))
 
-os.makedirs(TARGET_DIR, exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s sync_extensions: %(message)s",
+)
+log = logging.getLogger("sync_extensions")
 
-for item in os.listdir(SOURCE_DIR):
-    source_path = os.path.join(SOURCE_DIR, item)
-    target_path = os.path.join(TARGET_DIR, item)
 
-    if os.path.isdir(source_path):
-        shutil.copytree(source_path, target_path, dirs_exist_ok=True)
-    else:
-        shutil.copy2(source_path, target_path)
+def _is_valid_extension_name(name: str) -> bool:
+    return bool(name) and all(c.islower() or c.isdigit() or c == "_" for c in name)
 
 
 def _atomic_replace_tree(src: Path, dst: Path) -> None:
