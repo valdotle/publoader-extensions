@@ -1,8 +1,27 @@
+"""Sync extension source trees into the shared runtime volume.
+
+Only `src/<extension>/` subtrees are copied. The Dockerfile, LICENSE, README,
+.github, sync_extensions.py itself, .git, and top-level configs are excluded
+so the runtime volume contains exactly what the base loader expects.
+
+Destination layout:
+    <TARGET_DIR>/<extension_name>/<extension_name>.py
+    <TARGET_DIR>/<extension_name>/manifest.json
+    <TARGET_DIR>/<extension_name>/manga_id_map.json
+    <TARGET_DIR>/<extension_name>/...
+    <TARGET_DIR>/schedule*.json   (every schedule file at the source root)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
 import os
 import shutil
 
-SOURCE_DIR = "/extensions"
-TARGET_DIR = "/shared/publoader/extensions"
+SOURCE_ROOT = Path(os.environ.get("PUBLOADER_SOURCE", "/extensions"))
+SOURCE_SRC = SOURCE_ROOT / "src"
+TARGET_DIR = Path(os.environ.get("PUBLOADER_TARGET", "/shared/publoader/extensions"))
 
 os.makedirs(TARGET_DIR, exist_ok=True)
 
@@ -15,4 +34,86 @@ for item in os.listdir(SOURCE_DIR):
     else:
         shutil.copy2(source_path, target_path)
 
-print(f"Extensions synced to {TARGET_DIR}")
+
+def _atomic_replace_tree(src: Path, dst: Path) -> None:
+    """Replace `dst` with `src` atomically via rename (same filesystem)."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{dst.name}.", dir=dst.parent))
+    try:
+        shutil.copytree(src, staging / dst.name, dirs_exist_ok=False)
+        backup = None
+        if dst.exists():
+            backup = dst.with_suffix(dst.suffix + ".old")
+            if backup.exists():
+                shutil.rmtree(backup)
+            dst.rename(backup)
+        (staging / dst.name).rename(dst)
+        if backup is not None:
+            shutil.rmtree(backup, ignore_errors=True)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _validate_extension(ext_dir: Path) -> bool:
+    name = ext_dir.name
+    if not _is_valid_extension_name(name):
+        log.error("skip %s: invalid extension name", name)
+        return False
+    if not (ext_dir / f"{name}.py").is_file():
+        log.error("skip %s: missing %s.py", name, name)
+        return False
+    manifest_path = ext_dir / "manifest.json"
+    if not manifest_path.is_file():
+        log.error("skip %s: missing manifest.json", name)
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, ValueError) as exc:
+        log.error("skip %s: manifest.json invalid (%s)", name, exc)
+        return False
+    if manifest.get("name") != name:
+        log.error(
+            "skip %s: manifest.name=%r doesn't match directory",
+            name,
+            manifest.get("name"),
+        )
+        return False
+    return True
+
+
+def main() -> int:
+    if not SOURCE_SRC.is_dir():
+        log.error("source missing: %s", SOURCE_SRC)
+        return 2
+
+    TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    synced: list = []
+    skipped: list = []
+
+    for child in sorted(SOURCE_SRC.iterdir()):
+        if not child.is_dir() or child.name.startswith((".", "__")):
+            continue
+        if not _validate_extension(child):
+            skipped.append(child.name)
+            continue
+        try:
+            _atomic_replace_tree(child, TARGET_DIR / child.name)
+            synced.append(child.name)
+        except OSError as exc:
+            log.exception("failed syncing %s: %s", child.name, exc)
+            skipped.append(child.name)
+
+    # Copy every schedule*.json from the source root so private repos can ship
+    # their own (e.g. schedule-private.json) without colliding with the public one.
+    for schedule_file in sorted(SOURCE_ROOT.glob("schedule*.json")):
+        try:
+            shutil.copy2(schedule_file, TARGET_DIR / schedule_file.name)
+        except OSError as exc:
+            log.exception("failed copying %s: %s", schedule_file.name, exc)
+
+    log.info("synced=%s skipped=%s target=%s", synced, skipped, TARGET_DIR)
+    return 0 if not skipped else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
